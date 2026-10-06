@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fibration de Hopf — Charge Topologique Q_H & Fibré U(1)</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background-color: #080b10;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #e6edf3;
+      user-select: none;
+    }
+    #canvas-container {
+      width: 100vw;
+      height: 100vh;
+    }
+    #ui-panel {
+      position: absolute;
+      top: 15px;
+      right: 15px;
+      width: 330px;
+      background: rgba(15, 20, 28, 0.92);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+      z-index: 10;
+    }
+    h2 {
+      margin: 0 0 6px 0;
+      font-size: 15px;
+      font-weight: 600;
+      color: #58a6ff;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .subtitle {
+      font-size: 11px;
+      color: #8b949e;
+      margin-bottom: 12px;
+      line-height: 1.3;
+    }
+    .control-group {
+      margin-bottom: 12px;
+    }
+    label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      margin-bottom: 4px;
+      color: #8b949e;
+    }
+    input[type="range"] {
+      width: 100%;
+      accent-color: #238636;
+      cursor: pointer;
+    }
+    .btn-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 6px;
+      margin-top: 8px;
+    }
+    button {
+      background: #21262d;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #c9d1d9;
+      padding: 6px 10px;
+      font-size: 11px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s, color 0.2s;
+    }
+    button:hover {
+      background: #30363d;
+    }
+    button.active {
+      background: #238636;
+      border-color: #2ea043;
+      color: #fff;
+      font-weight: bold;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 12px;
+      background: rgba(88, 166, 255, 0.15);
+      color: #58a6ff;
+      font-size: 11px;
+      font-weight: bold;
+      margin-bottom: 12px;
+      line-height: 1.2;
+    }
+    #error-msg {
+      display: none;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: #d73a49;
+      color: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      text-align: center;
+      max-width: 400px;
+    }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+  <div id="canvas-container"></div>
+  <div id="error-msg">Impossible de charger Three.js. Veuillez vérifier votre connexion réseau.</div>
+
+  <div id="ui-panel">
+    <h2>Fibration de Hopf</h2>
+    <div class="subtitle">Fibré principal S¹ → S³ → S² (Charge topologique Q_H)</div>
+    <div id="stage-badge" class="status-badge">Fibres S¹ (U(1)) sur la Base S²</div>
+
+    <div class="control-group">
+      <label>Nombre de Tores (θ) <span id="val-tori">4</span></label>
+      <input type="range" id="slider-tori" min="1" max="8" step="1" value="4">
+    </div>
+
+    <div class="control-group">
+      <label>Fibres par Tore (φ) <span id="val-fibers">12</span></label>
+      <input type="range" id="slider-fibers" min="2" max="24" step="1" value="12">
+    </div>
+
+    <div class="control-group">
+      <label>Épaisseur des Fibres <span id="val-thickness">0.03</span></label>
+      <input type="range" id="slider-thickness" min="0.005" max="0.08" step="0.005" value="0.03">
+    </div>
+
+    <div class="control-group">
+      <label>Flux de phase U(1) <span id="val-speed">1.0</span></label>
+      <input type="range" id="slider-speed" min="0.0" max="3.0" step="0.1" value="1.0">
+    </div>
+
+    <div class="btn-grid">
+      <button id="btn-anim-toggle" class="active">Phase U(1) : ON</button>
+      <button id="btn-rotate-toggle" class="active">Rotation 3D : ON</button>
+    </div>
+
+    <div style="margin-top: 8px;">
+      <button id="btn-reset" style="width: 100%;">Réinitialiser Vue</button>
+    </div>
+  </div>
+
+  <script>
+    if (typeof THREE === 'undefined') {
+      document.getElementById('error-msg').style.display = 'block';
+    } else {
+      initHopfSimulation();
+    }
+
+    function initHopfSimulation() {
+      const container = document.getElementById('canvas-container');
+      const scene = new THREE.Scene();
+      scene.fog = new THREE.FogExp2(0x080b10, 0.02);
+
+      const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+      
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      container.appendChild(renderer.domElement);
+
+      // --- Contrôles Caméra ---
+      let isDragging = false;
+      let prevMouse = { x: 0, y: 0 };
+      let camSpherical = { radius: 10, theta: Math.PI / 4, phi: Math.PI / 3 };
+
+      function updateCameraPosition() {
+        camSpherical.phi = Math.max(0.05, Math.min(Math.PI - 0.05, camSpherical.phi));
+        camSpherical.radius = Math.max(2, Math.min(30, camSpherical.radius));
+
+        camera.position.x = camSpherical.radius * Math.sin(camSpherical.phi) * Math.sin(camSpherical.theta);
+        camera.position.y = camSpherical.radius * Math.cos(camSpherical.phi);
+        camera.position.z = camSpherical.radius * Math.sin(camSpherical.phi) * Math.cos(camSpherical.theta);
+        camera.lookAt(0, 0, 0);
+      }
+      updateCameraPosition();
+
+      renderer.domElement.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        prevMouse = { x: e.clientX, y: e.clientY };
+      });
+
+      window.addEventListener('mouseup', () => isDragging = false);
+
+      renderer.domElement.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        const dx = e.clientX - prevMouse.x;
+        const dy = e.clientY - prevMouse.y;
+        camSpherical.theta -= dx * 0.008;
+        camSpherical.phi -= dy * 0.008;
+        updateCameraPosition();
+        prevMouse = { x: e.clientX, y: e.clientY };
+      });
+
+      renderer.domElement.addEventListener('wheel', (e) => {
+        camSpherical.radius += e.deltaY * 0.008;
+        updateCameraPosition();
+      });
+
+      // --- Lumières ---
+      scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+      const light1 = new THREE.DirectionalLight(0xffffff, 1.2);
+      light1.position.set(10, 15, 10);
+      scene.add(light1);
+
+      const light2 = new THREE.DirectionalLight(0x58a6ff, 0.6);
+      light2.position.set(-10, -10, -10);
+      scene.add(light2);
+
+      // --- Paramètres Fibration ---
+      const PARAMS = {
+        numTori: 4,
+        fibersPerTorus: 12,
+        thickness: 0.03,
+        phaseSpeed: 1.0,
+        animatePhase: true,
+        autoRotate: true
+      };
+
+      const hopfGroup = new THREE.Group();
+      scene.add(hopfGroup);
+
+      const particlesGroup = new THREE.Group();
+      scene.add(particlesGroup);
+
+      // --- Mathématiques : Fibre S¹ (U(1)) de Hopf via Projection Stéréographique S³ → ℝ³ ---
+      function generateHopfFiberPoints(theta, phi, numPoints = 120) {
+        const points = [];
+        const cosHalf = Math.cos(theta / 2);
+        const sinHalf = Math.sin(theta / 2);
+
+        for (let i = 0; i <= numPoints; i++) {
+          const tau = (i / numPoints) * 2 * Math.PI; // τ parcourt la fibre circulaire S¹
+
+          // Coordonnées S³ ⊂ ℝ⁴ (Espace total S³ ≅ SU(2))
+          const x1 = cosHalf * Math.cos(tau + phi / 2);
+          const y1 = cosHalf * Math.sin(tau + phi / 2);
+          const x2 = sinHalf * Math.cos(tau - phi / 2);
+          const y2 = sinHalf * Math.sin(tau - phi / 2);
+
+          // Projection stéréographique S³ → ℝ³ (Pôle nord = y2)
+          const denom = 1.001 - y2;
+          const scale = 1.8 / denom;
+
+          points.push(new THREE.Vector3(x1 * scale, y1 * scale, x2 * scale));
+        }
+        return points;
+      }
+
+      let particleData = [];
+
+      function rebuildHopfFibration() {
+        while (hopfGroup.children.length > 0) {
+          const child = hopfGroup.children.pop();
+          if (child.geometry) child.geometry.dispose();
+          if (child.material) child.material.dispose();
+        }
+        while (particlesGroup.children.length > 0) {
+          const child = particlesGroup.children.pop();
+          if (child.geometry) child.geometry.dispose();
+          if (child.material) child.material.dispose();
+        }
+
+        particleData = [];
+        const particleGeo = new THREE.SphereGeometry(PARAMS.thickness * 1.8, 8, 8);
+
+        for (let t = 1; t <= PARAMS.numTori; t++) {
+          const theta = (t / (PARAMS.numTori + 1)) * Math.PI;
+
+          for (let f = 0; f < PARAMS.fibersPerTorus; f++) {
+            const phi = (f / PARAMS.fibersPerTorus) * 2 * Math.PI;
+
+            const pts = generateHopfFiberPoints(theta, phi);
+            const curve = new THREE.CatmullRomCurve3(pts, true);
+            
+            // Tube représentant la fibre S¹
+            const tubeGeo = new THREE.TubeGeometry(curve, 80, PARAMS.thickness, 8, true);
+
+            // La couleur code la position du point de base sur S² (θ, φ)
+            const color = new THREE.Color();
+            color.setHSL(phi / (2 * Math.PI), 0.85, 0.35 + 0.3 * Math.cos(theta));
+
+            const tubeMat = new THREE.MeshStandardMaterial({
+              color: color,
+              roughness: 0.2,
+              metalness: 0.3,
+              transparent: true,
+              opacity: 0.85
+            });
+
+            const tubeMesh = new THREE.Mesh(tubeGeo, tubeMat);
+            hopfGroup.add(tubeMesh);
+
+            // Particule matérialisant la circulation de jauge U(1) le long de la fibre S¹
+            const partMat = new THREE.MeshBasicMaterial({
+              color: color.clone().addScalar(0.4)
+            });
+            const partMesh = new THREE.Mesh(particleGeo, partMat);
+            particlesGroup.add(partMesh);
+
+            particleData.push({
+              mesh: partMesh,
+              curve: curve,
+              offset: f / PARAMS.fibersPerTorus
+            });
+          }
+        }
+      }
+
+      rebuildHopfFibration();
+
+      // --- Interface Utilisateur ---
+      const sliderTori = document.getElementById('slider-tori');
+      const valTori = document.getElementById('val-tori');
+      const sliderFibers = document.getElementById('slider-fibers');
+      const valFibers = document.getElementById('val-fibers');
+      const sliderThickness = document.getElementById('slider-thickness');
+      const valThickness = document.getElementById('val-thickness');
+      const sliderSpeed = document.getElementById('slider-speed');
+      const valSpeed = document.getElementById('val-speed');
+      const btnAnimToggle = document.getElementById('btn-anim-toggle');
+      const btnRotateToggle = document.getElementById('btn-rotate-toggle');
+
+      sliderTori.addEventListener('input', (e) => {
+        PARAMS.numTori = parseInt(e.target.value);
+        valTori.innerText = PARAMS.numTori;
+        rebuildHopfFibration();
+      });
+
+      sliderFibers.addEventListener('input', (e) => {
+        PARAMS.fibersPerTorus = parseInt(e.target.value);
+        valFibers.innerText = PARAMS.fibersPerTorus;
+        rebuildHopfFibration();
+      });
+
+      sliderThickness.addEventListener('input', (e) => {
+        PARAMS.thickness = parseFloat(e.target.value);
+        valThickness.innerText = PARAMS.thickness.toFixed(3);
+        rebuildHopfFibration();
+      });
+
+      sliderSpeed.addEventListener('input', (e) => {
+        PARAMS.phaseSpeed = parseFloat(e.target.value);
+        valSpeed.innerText = PARAMS.phaseSpeed.toFixed(1);
+      });
+
+      btnAnimToggle.addEventListener('click', () => {
+        PARAMS.animatePhase = !PARAMS.animatePhase;
+        btnAnimToggle.innerText = PARAMS.animatePhase ? 'Phase U(1) : ON' : 'Phase U(1) : OFF';
+        btnAnimToggle.classList.toggle('active', PARAMS.animatePhase);
+      });
+
+      btnRotateToggle.addEventListener('click', () => {
+        PARAMS.autoRotate = !PARAMS.autoRotate;
+        btnRotateToggle.innerText = PARAMS.autoRotate ? 'Rotation 3D : ON' : 'Rotation 3D : OFF';
+        btnRotateToggle.classList.toggle('active', PARAMS.autoRotate);
+      });
+
+      document.getElementById('btn-reset').addEventListener('click', () => {
+        camSpherical = { radius: 10, theta: Math.PI / 4, phi: Math.PI / 3 };
+        updateCameraPosition();
+      });
+
+      // --- Boucle de Rendu ---
+      const clock = new THREE.Clock();
+      let globalPhase = 0;
+
+      function animate() {
+        requestAnimationFrame(animate);
+        const delta = clock.getDelta();
+
+        if (PARAMS.animatePhase) {
+          globalPhase += delta * PARAMS.phaseSpeed * 0.3;
+
+          // Déplacement du marqueur le long du degré de liberté interne U(1)
+          particleData.forEach(p => {
+            const u = (globalPhase + p.offset) % 1.0;
+            const pt = p.curve.getPointAt(u);
+            p.mesh.position.copy(pt);
+          });
+        }
+
+        if (PARAMS.autoRotate) {
+          hopfGroup.rotation.y += delta * 0.15;
+          particlesGroup.rotation.y += delta * 0.15;
+        } else {
+          hopfGroup.rotation.y = 0;
+          particlesGroup.rotation.y = 0;
+        }
+
+        renderer.render(scene, camera);
+      }
+
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      animate();
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Belt Trick de Dirac — Spin 1/2 & Topologie du Champ</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background-color: #080b10;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #e6edf3;
+      user-select: none;
+    }
+    #canvas-container {
+      width: 100vw;
+      height: 100vh;
+    }
+    #ui-panel {
+      position: absolute;
+      top: 15px;
+      right: 15px;
+      width: 340px;
+      background: rgba(15, 20, 28, 0.92);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+      z-index: 10;
+    }
+    h2 {
+      margin: 0 0 6px 0;
+      font-size: 15px;
+      font-weight: 600;
+      color: #58a6ff;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .subtitle {
+      font-size: 11px;
+      color: #8b949e;
+      margin-bottom: 12px;
+      line-height: 1.3;
+    }
+    .status-badge {
+      display: block;
+      padding: 6px 10px;
+      border-radius: 6px;
+      background: rgba(88, 166, 255, 0.12);
+      color: #58a6ff;
+      font-size: 11px;
+      font-weight: bold;
+      margin-bottom: 12px;
+      line-height: 1.4;
+      border-left: 3px solid #58a6ff;
+    }
+    .control-group {
+      margin-bottom: 12px;
+    }
+    label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      margin-bottom: 4px;
+      color: #8b949e;
+    }
+    input[type="range"] {
+      width: 100%;
+      accent-color: #238636;
+      cursor: pointer;
+    }
+    .btn-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 6px;
+      margin-top: 8px;
+    }
+    button {
+      background: #21262d;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #c9d1d9;
+      padding: 6px 10px;
+      font-size: 11px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s, color 0.2s;
+    }
+    button:hover {
+      background: #30363d;
+    }
+    button.active {
+      background: #238636;
+      border-color: #2ea043;
+      color: #fff;
+      font-weight: bold;
+    }
+    #error-msg {
+      display: none;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: #d73a49;
+      color: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      text-align: center;
+      max-width: 400px;
+    }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+  <div id="canvas-container"></div>
+  <div id="error-msg">Impossible de charger Three.js. Veuillez vérifier votre connexion réseau.</div>
+
+  <div id="ui-panel">
+    <h2>Belt Trick de Dirac</h2>
+    <div class="subtitle">Topologie de SO(3) & Homotopie π₁(SO(3)) ≅ ℤ₂</div>
+    <div id="status-badge" class="status-badge">Phase 0 : Repos (Identité +I)</div>
+
+    <div class="control-group">
+      <label>Angle de rotation Φ <span id="val-angle">0° (0.00π)</span></label>
+      <input type="range" id="slider-angle" min="0" max="720" step="1" value="0">
+    </div>
+
+    <div class="control-group">
+      <label>Vitesse d'animation <span id="val-speed">1.0x</span></label>
+      <input type="range" id="slider-speed" min="0.1" max="3.0" step="0.1" value="1.0">
+    </div>
+
+    <div class="btn-grid">
+      <button id="btn-play" class="active">Animation : ON</button>
+      <button id="btn-ribbons">4 Rubans</button>
+    </div>
+
+    <div style="margin-top: 8px;">
+      <button id="btn-reset" style="width: 100%;">Réinitialiser Vue</button>
+    </div>
+  </div>
+
+  <script>
+    if (typeof THREE === 'undefined') {
+      document.getElementById('error-msg').style.display = 'block';
+    } else {
+      initBeltTrickSimulation();
+    }
+
+    function initBeltTrickSimulation() {
+      const container = document.getElementById('canvas-container');
+      const scene = new THREE.Scene();
+      scene.fog = new THREE.FogExp2(0x080b10, 0.025);
+
+      const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      container.appendChild(renderer.domElement);
+
+      // --- Contrôles Caméra ---
+      let isDragging = false;
+      let prevMouse = { x: 0, y: 0 };
+      let camSpherical = { radius: 11, theta: Math.PI / 4, phi: Math.PI / 3 };
+
+      function updateCameraPosition() {
+        camSpherical.phi = Math.max(0.05, Math.min(Math.PI - 0.05, camSpherical.phi));
+        camSpherical.radius = Math.max(3, Math.min(30, camSpherical.radius));
+
+        camera.position.x = camSpherical.radius * Math.sin(camSpherical.phi) * Math.sin(camSpherical.theta);
+        camera.position.y = camSpherical.radius * Math.cos(camSpherical.phi);
+        camera.position.z = camSpherical.radius * Math.sin(camSpherical.phi) * Math.cos(camSpherical.theta);
+        camera.lookAt(0, 0, 0);
+      }
+      updateCameraPosition();
+
+      renderer.domElement.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        prevMouse = { x: e.clientX, y: e.clientY };
+      });
+
+      window.addEventListener('mouseup', () => isDragging = false);
+
+      renderer.domElement.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        const dx = e.clientX - prevMouse.x;
+        const dy = e.clientY - prevMouse.y;
+        camSpherical.theta -= dx * 0.008;
+        camSpherical.phi -= dy * 0.008;
+        updateCameraPosition();
+        prevMouse = { x: e.clientX, y: e.clientY };
+      });
+
+      renderer.domElement.addEventListener('wheel', (e) => {
+        camSpherical.radius += e.deltaY * 0.008;
+        updateCameraPosition();
+      });
+
+      // --- Lumières ---
+      scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+      const light1 = new THREE.DirectionalLight(0xffffff, 1.2);
+      light1.position.set(10, 15, 10);
+      scene.add(light1);
+
+      const light2 = new THREE.DirectionalLight(0x58a6ff, 0.5);
+      light2.position.set(-10, -10, -10);
+      scene.add(light2);
+
+      // --- Objets Principaux ---
+      const R_CORE = 1.0;
+      const R_FRAME = 4.2;
+      const N_SEG = 60;
+      const RIBBON_WIDTH = 0.22;
+
+      // Cœur du soliton (Sphère centrale avec repère attaché)
+      const coreGroup = new THREE.Group();
+      scene.add(coreGroup);
+
+      const coreGeo = new THREE.SphereGeometry(R_CORE, 32, 32);
+      const coreMat = new THREE.MeshStandardMaterial({
+        color: 0x1f6feb,
+        roughness: 0.2,
+        metalness: 0.5,
+        wireframe: false
+      });
+      const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+      coreGroup.add(coreMesh);
+
+      // Repère 3D attaché au cœur
+      const axesHelper = new THREE.AxesHelper(1.6);
+      coreGroup.add(axesHelper);
+
+      // Cadre extérieur fixe (Infini de ℝ³)
+      const frameGeo = new THREE.BoxGeometry(R_FRAME * 2, R_FRAME * 2, R_FRAME * 2);
+      const frameMat = new THREE.MeshBasicMaterial({
+        color: 0x30363d,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.4
+      });
+      const frameMesh = new THREE.Mesh(frameGeo, frameMat);
+      scene.add(frameMesh);
+
+      // --- Rubans (Champs de repères) ---
+      let numRibbons = 4;
+      let ribbonMeshes = [];
+
+      const colors = [0x58a6ff, 0x3fb950, 0xd29922, 0xf85149, 0xa371f7, 0x238636];
+
+      function createRibbonGeometry() {
+        const geo = new THREE.BufferGeometry();
+        const pos = new Float32Array((N_SEG + 1) * 2 * 3);
+        const uvs = new Float32Array((N_SEG + 1) * 2 * 2);
+        const indices = [];
+
+        for (let i = 0; i <= N_SEG; i++) {
+          const u = i / N_SEG;
+          uvs[(i * 2 + 0) * 2 + 0] = 0;
+          uvs[(i * 2 + 0) * 2 + 1] = u;
+          uvs[(i * 2 + 1) * 2 + 0] = 1;
+          uvs[(i * 2 + 1) * 2 + 1] = u;
+
+          if (i < N_SEG) {
+            const row1 = i * 2;
+            const row2 = (i + 1) * 2;
+            indices.push(row1, row1 + 1, row2);
+            indices.push(row1 + 1, row2 + 1, row2);
+          }
+        }
+
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+        geo.setIndex(indices);
+        return geo;
+      }
+
+      function rebuildRibbons() {
+        ribbonMeshes.forEach(m => scene.remove(m));
+        ribbonMeshes = [];
+
+        const directions = [];
+        if (numRibbons === 4) {
+          directions.push(
+            new THREE.Vector3(1, 0, 0),
+            new THREE.Vector3(-1, 0, 0),
+            new THREE.Vector3(0, 0, 1),
+            new THREE.Vector3(0, 0, -1)
+          );
+        } else {
+          directions.push(
+            new THREE.Vector3(1, 0, 0),
+            new THREE.Vector3(-1, 0, 0),
+            new THREE.Vector3(0, 1, 0),
+            new THREE.Vector3(0, -1, 0),
+            new THREE.Vector3(0, 0, 1),
+            new THREE.Vector3(0, 0, -1)
+          );
+        }
+
+        directions.forEach((dir, idx) => {
+          const geo = createRibbonGeometry();
+          const mat = new THREE.MeshStandardMaterial({
+            color: colors[idx % colors.length],
+            side: THREE.DoubleSide,
+            roughness: 0.3,
+            metalness: 0.2
+          });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.userData = { dir: dir.clone().normalize() };
+          scene.add(mesh);
+          ribbonMeshes.push(mesh);
+        });
+      }
+
+      rebuildRibbons();
+
+      // --- Mathématiques du Belt Trick (Homotopie SU(2) → SO(3)) ---
+      function updateSimulation(angleDeg) {
+        const Phi = (angleDeg / 180) * Math.PI; // [0, 4π]
+
+        // Rotation physique du cœur autour de l'axe Z
+        coreGroup.rotation.z = Phi;
+
+        // Mise à jour de chaque ruban
+        ribbonMeshes.forEach(mesh => {
+          const dirVec = mesh.userData.dir;
+          const posAttr = mesh.geometry.attributes.position;
+          const pos = posAttr.array;
+
+          // Vecteur largeur orthogonal au ruban
+          let widthVec = new THREE.Vector3(0, 1, 0);
+          if (Math.abs(dirVec.dot(widthVec)) > 0.8) {
+            widthVec.set(1, 0, 0);
+          }
+          widthVec.crossVectors(dirVec, widthVec).normalize();
+
+          for (let i = 0; i <= N_SEG; i++) {
+            const u = i / N_SEG;
+            const radius = R_CORE + u * (R_FRAME - R_CORE);
+            
+            const p0 = dirVec.clone().multiplyScalar(radius);
+            const w0 = widthVec.clone().multiplyScalar(RIBBON_WIDTH * 0.5);
+
+            let q = new THREE.Quaternion();
+
+            if (Phi <= Math.PI * 2) {
+              // --- Phase 1 : Rotation 0 → 2π (360°) ---
+              // Le ruban accumule 1 tour complet de torsion
+              const theta = Phi * (1 - u);
+              q.setFromAxisAngle(new THREE.Vector3(0, 0, 1), theta);
+            } else {
+              // --- Phase 2 : Rotation 2π → 4π (720°) ---
+              // Balayage homotopique de Dirac (Démêlement dans ℝ³)
+              const s = (Phi - Math.PI * 2) / (Math.PI * 2); // s ∈ [0, 1]
+              const theta = Math.PI * (1 - u) * (1 - s);
+
+              // Axe de rotation oscillant hors du plan Z
+              const vRaw = new THREE.Vector3(
+                2 * Math.sin(Math.PI * s) * Math.sin(Math.PI * u),
+                0,
+                Math.cos(Math.PI * s)
+              );
+
+              if (vRaw.lengthSq() < 1e-6) vRaw.set(0, 0, 1);
+              vRaw.normalize();
+
+              q.setFromAxisAngle(vRaw, 2 * theta);
+            }
+
+            // Application de la rotation locale
+            const pRot = p0.clone().applyQuaternion(q);
+            const wRot = w0.clone().applyQuaternion(q);
+
+            const vLeft = pRot.clone().sub(wRot);
+            const vRight = pRot.clone().add(wRot);
+
+            const idx = i * 2;
+            pos[idx * 3 + 0] = vLeft.x;
+            pos[idx * 3 + 1] = vLeft.y;
+            pos[idx * 3 + 2] = vLeft.z;
+
+            pos[(idx + 1) * 3 + 0] = vRight.x;
+            pos[(idx + 1) * 3 + 1] = vRight.y;
+            pos[(idx + 1) * 3 + 2] = vRight.z;
+          }
+
+          posAttr.needsUpdate = true;
+          mesh.geometry.computeVertexNormals();
+        });
+
+        // Mise à jour de l'UI
+        updateUIState(angleDeg);
+      }
+
+      function updateUIState(angleDeg) {
+        const radPi = (angleDeg / 180).toFixed(2);
+        document.getElementById('val-angle').innerText = `${Math.round(angleDeg)}° (${radPi}π)`;
+
+        const badge = document.getElementById('status-badge');
+
+        if (angleDeg === 0) {
+          badge.innerText = "Phase 0 : Repos (+I ∈ SU(2))\nChamp totalement détendu.";
+          badge.style.borderColor = "#58a6ff";
+        } else if (angleDeg < 360) {
+          badge.innerText = `Tour 1 (0 → 2π) : Rotation 360°\nEnchevêtrement du champ...`;
+          badge.style.borderColor = "#d29922";
+        } else if (angleDeg === 360) {
+          badge.innerText = "Fin Tour 1 (2π) : État -I ∈ SU(2)\nCœur revenu à l'origine, rubans TORDUS (1 tour).";
+          badge.style.borderColor = "#f85149";
+        } else if (angleDeg < 720) {
+          badge.innerText = `Tour 2 (2π → 4π) : Balayage de Dirac\nDémêlement topologique en cours...`;
+          badge.style.borderColor = "#a371f7";
+        } else {
+          badge.innerText = "Fin Tour 2 (4π) : État +I ∈ SU(2)\nCœur à 720°, champ TOTALEMENT DÉMÊLÉ !";
+          badge.style.borderColor = "#2ea043";
+        }
+      }
+
+      // --- Interface Utilisateur & Contrôles ---
+      let isPlaying = true;
+      let currentAngle = 0;
+      let animSpeed = 1.0;
+
+      const sliderAngle = document.getElementById('slider-angle');
+      const sliderSpeed = document.getElementById('slider-speed');
+      const btnPlay = document.getElementById('btn-play');
+      const btnRibbons = document.getElementById('btn-ribbons');
+
+      sliderAngle.addEventListener('input', (e) => {
+        currentAngle = parseFloat(e.target.value);
+        isPlaying = false;
+        btnPlay.innerText = "Animation : OFF";
+        btnPlay.classList.remove('active');
+        updateSimulation(currentAngle);
+      });
+
+      sliderSpeed.addEventListener('input', (e) => {
+        animSpeed = parseFloat(e.target.value);
+        document.getElementById('val-speed').innerText = `${animSpeed.toFixed(1)}x`;
+      });
+
+      btnPlay.addEventListener('click', () => {
+        isPlaying = !isPlaying;
+        btnPlay.innerText = isPlaying ? "Animation : ON" : "Animation : OFF";
+        btnPlay.classList.toggle('active', isPlaying);
+      });
+
+      btnRibbons.addEventListener('click', () => {
+        numRibbons = numRibbons === 4 ? 6 : 4;
+        btnRibbons.innerText = `${numRibbons} Rubans`;
+        rebuildRibbons();
+        updateSimulation(currentAngle);
+      });
+
+      document.getElementById('btn-reset').addEventListener('click', () => {
+        camSpherical = { radius: 11, theta: Math.PI / 4, phi: Math.PI / 3 };
+        updateCameraPosition();
+        currentAngle = 0;
+        sliderAngle.value = 0;
+        updateSimulation(0);
+      });
+
+      // --- Boucle de Rendu ---
+      const clock = new THREE.Clock();
+
+      function animate() {
+        requestAnimationFrame(animate);
+        const delta = clock.getDelta();
+
+        if (isPlaying) {
+          currentAngle += delta * 60 * animSpeed;
+          if (currentAngle > 720) currentAngle = 0;
+          sliderAngle.value = currentAngle;
+          updateSimulation(currentAngle);
+        }
+
+        renderer.render(scene, camera);
+      }
+
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      updateSimulation(0);
+      animate();
+    }
+  </script>
+</body>
+</html>

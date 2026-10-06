@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Métamorphose d'Hélice 3D — Möbius & Holonomie Exacte</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background-color: #0d1117;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #e6edf3;
+      user-select: none;
+    }
+    #canvas-container {
+      width: 100vw;
+      height: 100vh;
+    }
+    #ui-panel {
+      position: absolute;
+      top: 15px;
+      right: 15px;
+      width: 320px;
+      background: rgba(22, 27, 34, 0.92);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+      z-index: 10;
+    }
+    h2 {
+      margin: 0 0 12px 0;
+      font-size: 15px;
+      font-weight: 600;
+      color: #58a6ff;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .control-group {
+      margin-bottom: 12px;
+    }
+    label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      margin-bottom: 4px;
+      color: #8b949e;
+    }
+    input[type="range"] {
+      width: 100%;
+      accent-color: #238636;
+      cursor: pointer;
+    }
+    .btn-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 6px;
+      margin-top: 6px;
+    }
+    .btn-grid-3 {
+      display: grid;
+      grid-template-columns: 1fr 1.2fr 1fr;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    button {
+      background: #21262d;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #c9d1d9;
+      padding: 6px 10px;
+      font-size: 11px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s, color 0.2s;
+    }
+    button:hover {
+      background: #30363d;
+    }
+    button.active {
+      background: #238636;
+      border-color: #2ea043;
+      color: #fff;
+      font-weight: bold;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 12px;
+      background: rgba(56, 139, 253, 0.15);
+      color: #58a6ff;
+      font-size: 11px;
+      font-weight: bold;
+      margin-bottom: 12px;
+    }
+    #error-msg {
+      display: none;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: #d73a49;
+      color: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      text-align: center;
+      max-width: 400px;
+    }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+  <div id="canvas-container"></div>
+  <div id="error-msg">Impossible de charger Three.js. Veuillez vérifier votre connexion réseau.</div>
+
+  <div id="ui-panel">
+    <h2>Métamorphose Toroïdale</h2>
+    <div id="stage-badge" class="status-badge">Étape 1 : Ruban Droit (Axe X)</div>
+
+    <div class="control-group">
+      <label>Progression (s) <span id="val-morph">0.00</span></label>
+      <input type="range" id="slider-morph" min="0" max="3" step="0.005" value="0">
+    </div>
+
+    <div class="btn-grid-3">
+      <button id="btn-step-prev">‹ Pas -</button>
+      <button id="btn-play-pause" class="active">⏸ Pause</button>
+      <button id="btn-step-next">Pas + ›</button>
+    </div>
+
+    <div class="btn-grid">
+      <button id="btn-stage-0" class="active">1. Droit</button>
+      <button id="btn-stage-1">2. Cône X</button>
+      <button id="btn-stage-2">3. Cylindre X</button>
+      <button id="btn-stage-3">4. Tore (p=1, q=1)</button>
+    </div>
+
+    <hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.1); margin: 12px 0;">
+
+    <div class="control-group">
+      <label>Tours Poloidal (p) <span id="val-p">1</span></label>
+      <input type="range" id="slider-p" min="1" max="6" step="1" value="1">
+    </div>
+
+    <div class="control-group">
+      <label>Tours Toroidal (q) <span id="val-q">1</span></label>
+      <input type="range" id="slider-q" min="1" max="6" step="1" value="1">
+    </div>
+
+    <div class="control-group">
+      <label>Largeur du ruban <span id="val-width">0.50</span></label>
+      <input type="range" id="slider-width" min="0.05" max="0.80" step="0.01" value="0.50">
+    </div>
+
+    <div class="control-group">
+      <label>Vrille (N_twist) <span id="val-twist">0.5</span></label>
+      <input type="range" id="slider-twist" min="-10" max="10" step="0.5" value="0.5">
+    </div>
+
+    <div class="btn-grid">
+      <button id="btn-rot-toggle" class="active">Rotation : ON</button>
+      <button id="btn-grid-toggle" class="active">Grille Tore : AUTO</button>
+    </div>
+
+    <div style="margin-top: 6px;">
+      <button id="btn-reset" style="width: 100%;">Réinitialiser</button>
+    </div>
+  </div>
+
+  <script>
+    if (typeof THREE === 'undefined') {
+      document.getElementById('error-msg').style.display = 'block';
+    } else {
+      initSimulation();
+    }
+
+    function initSimulation() {
+      const container = document.getElementById('canvas-container');
+      const scene = new THREE.Scene();
+      scene.fog = new THREE.FogExp2(0x0d1117, 0.025);
+
+      const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+      
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      container.appendChild(renderer.domElement);
+
+      // --- Contrôles de Caméra ---
+      let isDragging = false;
+      let prevMouse = { x: 0, y: 0 };
+      let camSpherical = { radius: 13, theta: Math.PI / 4, phi: Math.PI / 3 };
+
+      function updateCameraPosition() {
+        camSpherical.phi = Math.max(0.05, Math.min(Math.PI - 0.05, camSpherical.phi));
+        camSpherical.radius = Math.max(3, Math.min(40, camSpherical.radius));
+
+        camera.position.x = camSpherical.radius * Math.sin(camSpherical.phi) * Math.sin(camSpherical.theta);
+        camera.position.y = camSpherical.radius * Math.cos(camSpherical.phi);
+        camera.position.z = camSpherical.radius * Math.sin(camSpherical.phi) * Math.cos(camSpherical.theta);
+        camera.lookAt(0, 0, 0);
+      }
+      updateCameraPosition();
+
+      renderer.domElement.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        prevMouse = { x: e.clientX, y: e.clientY };
+      });
+
+      window.addEventListener('mouseup', () => isDragging = false);
+
+      renderer.domElement.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        const dx = e.clientX - prevMouse.x;
+        const dy = e.clientY - prevMouse.y;
+        camSpherical.theta -= dx * 0.008;
+        camSpherical.phi -= dy * 0.008;
+        updateCameraPosition();
+        prevMouse = { x: e.clientX, y: e.clientY };
+      });
+
+      renderer.domElement.addEventListener('wheel', (e) => {
+        camSpherical.radius += e.deltaY * 0.01;
+        updateCameraPosition();
+      });
+
+      // --- Lumières ---
+      scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+
+      const dirLight1 = new THREE.DirectionalLight(0x00f2fe, 1.2);
+      dirLight1.position.set(8, 12, 10);
+      scene.add(dirLight1);
+
+      const dirLight2 = new THREE.DirectionalLight(0xff9e00, 0.9);
+      dirLight2.position.set(-8, -8, -10);
+      scene.add(dirLight2);
+
+      const gridHelper = new THREE.GridHelper(24, 24, 0x30363d, 0x161b22);
+      gridHelper.position.y = -3.5;
+      scene.add(gridHelper);
+
+      // --- Paramètres de Simulation ---
+      const PARAMS = {
+        s: 0.0,
+        Rmax: 1.2,
+        H: 12.0,
+        p: 1,
+        q: 1,
+        ribbonWidth: 0.50,
+        N_twist: 0.5,
+        autoMorph: true,
+        isSpinning: true,
+        morphSpeed: 0.2,
+        spinPhase: 0.0,
+        gridMode: 'auto'
+      };
+
+      // --- Grille Toroïdale ---
+      let torusMesh;
+      function rebuildTorusGrid() {
+        if (torusMesh) scene.remove(torusMesh);
+        const Ra = PARAMS.H / (2.0 * Math.PI * PARAMS.q);
+        const torusGeo = new THREE.TorusGeometry(Ra, PARAMS.Rmax, 18, 48);
+        const torusMat = new THREE.MeshBasicMaterial({
+          color: 0x58a6ff,
+          wireframe: true,
+          transparent: true,
+          opacity: 0.0
+        });
+        torusMesh = new THREE.Mesh(torusGeo, torusMat);
+        torusMesh.rotation.x = Math.PI / 2;
+        torusMesh.position.set(0, 0, -Ra);
+        scene.add(torusMesh);
+      }
+      rebuildTorusGrid();
+
+      // --- Géométrie Bicolore du Ruban ---
+      const U_SEGS = 400;
+      const geometry = new THREE.BufferGeometry();
+      const positions = new Float32Array((U_SEGS + 1) * 2 * 3);
+      const uvs = new Float32Array((U_SEGS + 1) * 2 * 2);
+
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+
+      const matFront = new THREE.MeshStandardMaterial({
+        color: 0x00f2fe,
+        roughness: 0.3,
+        metalness: 0.4,
+        side: THREE.FrontSide
+      });
+
+      const matBack = new THREE.MeshStandardMaterial({
+        color: 0xff9e00,
+        roughness: 0.3,
+        metalness: 0.4,
+        side: THREE.FrontSide
+      });
+
+      const ribbonMesh = new THREE.Mesh(geometry, [matFront, matBack]);
+      ribbonMesh.frustumCulled = false;
+      scene.add(ribbonMesh);
+
+      // --- Mise à Jour Topologique des Indices ---
+      let lastIsClosedState = null;
+      let lastTwistState = null;
+
+      function updateMeshTopology() {
+        const isClosed = PARAMS.s >= 2.99;
+        const isMobius = Math.abs(PARAMS.N_twist % 1 - 0.5) < 0.1 || Math.abs(PARAMS.N_twist % 1 - (-0.5)) < 0.1;
+
+        if (isClosed === lastIsClosedState && PARAMS.N_twist === lastTwistState) return;
+        lastIsClosedState = isClosed;
+        lastTwistState = PARAMS.N_twist;
+
+        const indices = [];
+
+        // Face Recto (Cyan)
+        for (let i = 0; i < U_SEGS; i++) {
+          const row1 = i * 2;
+          const row2 = (i + 1) * 2;
+          indices.push(row1, row1 + 1, row2);
+          indices.push(row2, row1 + 1, row2 + 1);
+        }
+        if (isClosed) {
+          const rL = U_SEGS * 2;
+          const rF = 0;
+          if (isMobius) {
+            // Raccordement Möbius : la face cyan rejoint la face orange à la couture
+            indices.push(rL, rL + 1, rF + 1);
+            indices.push(rF + 1, rL + 1, rF);
+          } else {
+            indices.push(rL, rL + 1, rF);
+            indices.push(rF, rL + 1, rF + 1);
+          }
+        }
+        const frontCount = indices.length;
+
+        // Face Verso (Orange)
+        for (let i = 0; i < U_SEGS; i++) {
+          const row1 = i * 2;
+          const row2 = (i + 1) * 2;
+          indices.push(row1, row2, row1 + 1);
+          indices.push(row2, row2 + 1, row1 + 1);
+        }
+        if (isClosed) {
+          const rL = U_SEGS * 2;
+          const rF = 0;
+          if (isMobius) {
+            indices.push(rL, rF + 1, rL + 1);
+            indices.push(rF + 1, rF, rL + 1);
+          } else {
+            indices.push(rL, rF, rL + 1);
+            indices.push(rF, rF + 1, rL + 1);
+          }
+        }
+        const backCount = indices.length - frontCount;
+
+        geometry.setIndex(indices);
+        geometry.clearGroups();
+        geometry.addGroup(0, frontCount, 0);
+        geometry.addGroup(frontCount, backCount, 1);
+      }
+
+      // --- Mathématiques Stables ---
+      function smoothstep(t) {
+        t = Math.max(0, Math.min(1, t));
+        return t * t * (3 - 2 * t);
+      }
+
+      function sinc(phi) {
+        if (Math.abs(phi) < 1e-4) return 1.0 - (phi * phi) / 6.0;
+        return Math.sin(phi) / phi;
+      }
+
+      function versinc(phi) {
+        if (Math.abs(phi) < 1e-4) return phi / 2.0 - (phi * phi * phi) / 24.0;
+        return (1.0 - Math.cos(phi)) / phi;
+      }
+
+      function computeSpinePoint(u, s) {
+        const Rmax = PARAMS.Rmax;
+        const H = PARAMS.H;
+        const p = PARAMS.p;
+        const q = PARAMS.q;
+
+        if (s <= 1.0) {
+          const alpha = smoothstep(s);
+          const r = alpha * Rmax * u;
+          const theta = alpha * 2.0 * Math.PI * p * u;
+          return new THREE.Vector3(H * (u - 0.5), r * Math.sin(theta), r * Math.cos(theta));
+        } else if (s <= 2.0) {
+          const alpha = smoothstep(s - 1.0);
+          const r = Rmax * ((1.0 - alpha) * u + alpha);
+          const theta = 2.0 * Math.PI * p * u;
+          return new THREE.Vector3(H * (u - 0.5), r * Math.sin(theta), r * Math.cos(theta));
+        } else {
+          const alpha = smoothstep(s - 2.0);
+          const theta = 2.0 * Math.PI * p * u;
+          const dR = Rmax * Math.cos(theta);
+          const y = Rmax * Math.sin(theta);
+
+          const x0 = H * (u - 0.5);
+          const phi = alpha * 2.0 * Math.PI * q * (u - 0.5);
+
+          const x = x0 * sinc(phi) + dR * Math.sin(phi);
+          const z = -x0 * versinc(phi) + dR * Math.cos(phi);
+
+          return new THREE.Vector3(x, y, z);
+        }
+      }
+
+      // --- Calcul du Ruban avec Correction d'Holonomie ---
+      function updateRibbonGeometry() {
+        updateMeshTopology();
+
+        const posAttr = geometry.attributes.position;
+        const du = 0.0005;
+        const defaultUp = new THREE.Vector3(0, 1, 0);
+
+        // Passe 1 : Transport parallèle pur pour calculer l'holonomie
+        const frames = [];
+        let prevV1 = null;
+
+        for (let i = 0; i <= U_SEGS; i++) {
+          const u = i / U_SEGS;
+          const p = computeSpinePoint(u, PARAMS.s);
+          const pNext = computeSpinePoint(Math.min(1.0, u + du), PARAMS.s);
+
+          const T = pNext.clone().sub(p).normalize();
+          
+          let V1;
+          if (i === 0 || !prevV1) {
+            V1 = new THREE.Vector3().crossVectors(T, defaultUp).normalize();
+            if (V1.lengthSq() < 0.001) {
+              V1 = new THREE.Vector3().crossVectors(T, new THREE.Vector3(1, 0, 0)).normalize();
+            }
+          } else {
+            V1 = prevV1.clone().sub(T.clone().multiplyScalar(prevV1.dot(T))).normalize();
+          }
+          const V2 = new THREE.Vector3().crossVectors(T, V1).normalize();
+          prevV1 = V1.clone();
+          frames.push({ p, T, V1, V2 });
+        }
+
+        // Mesure de l'holonomie géométrique résiduelle à u = 1
+        let holonomyAngle = 0;
+        if (PARAMS.s > 2.0) {
+          const T0 = frames[0].T;
+          const V1_start = frames[0].V1;
+          const V1_end = frames[U_SEGS].V1;
+
+          const cosH = THREE.MathUtils.clamp(V1_end.dot(V1_start), -1, 1);
+          const sinH = new THREE.Vector3().crossVectors(V1_end, V1_start).dot(T0);
+          holonomyAngle = Math.atan2(sinH, cosH);
+        }
+
+        // Passe 2 : Application de la vrille corrigée de l'holonomie
+        for (let i = 0; i <= U_SEGS; i++) {
+          const u = i / U_SEGS;
+          const { p, V1, V2 } = frames[i];
+
+          // Compensation exacte de l'angle résiduel pour que N_twist = 0.5 fasse exactement 180°
+          const alphaS = smoothstep(PARAMS.s - 2.0);
+          const correctedTwist = 2.0 * Math.PI * PARAMS.N_twist * u - (u * holonomyAngle * alphaS) + PARAMS.spinPhase;
+
+          const M = V1.clone().multiplyScalar(Math.cos(correctedTwist))
+                      .add(V2.clone().multiplyScalar(Math.sin(correctedTwist))).normalize();
+
+          const pLeft = p.clone().sub(M.clone().multiplyScalar(PARAMS.ribbonWidth / 2.0));
+          const pRight = p.clone().add(M.clone().multiplyScalar(PARAMS.ribbonWidth / 2.0));
+
+          const idx = i * 2;
+          posAttr.setXYZ(idx, pLeft.x, pLeft.y, pLeft.z);
+          posAttr.setXYZ(idx + 1, pRight.x, pRight.y, pRight.z);
+        }
+
+        posAttr.needsUpdate = true;
+        geometry.computeVertexNormals();
+      }
+
+      function updateTorusGridVisibility() {
+        if (!torusMesh) return;
+        if (PARAMS.gridMode === 'always') {
+          torusMesh.material.opacity = 0.35;
+        } else if (PARAMS.gridMode === 'off') {
+          torusMesh.material.opacity = 0.0;
+        } else {
+          const alpha = smoothstep(PARAMS.s - 2.0);
+          torusMesh.material.opacity = alpha * 0.35;
+        }
+        torusMesh.visible = torusMesh.material.opacity > 0.001;
+      }
+
+      // --- Interface Utilisateur ---
+      const sliderMorph = document.getElementById('slider-morph');
+      const valMorph = document.getElementById('val-morph');
+      const sliderP = document.getElementById('slider-p');
+      const valP = document.getElementById('val-p');
+      const sliderQ = document.getElementById('slider-q');
+      const valQ = document.getElementById('val-q');
+      const sliderWidth = document.getElementById('slider-width');
+      const valWidth = document.getElementById('val-width');
+      const sliderTwist = document.getElementById('slider-twist');
+      const valTwist = document.getElementById('val-twist');
+      const btnPlayPause = document.getElementById('btn-play-pause');
+      const btnStepPrev = document.getElementById('btn-step-prev');
+      const btnStepNext = document.getElementById('btn-step-next');
+      const btnRotToggle = document.getElementById('btn-rot-toggle');
+      const btnGridToggle = document.getElementById('btn-grid-toggle');
+      const badgeStage = document.getElementById('stage-badge');
+
+      const stagesNames = [
+        "Étape 1 : Ruban Droit (Axe X)",
+        "Étape 2 : Hélice Conique (Axe X)",
+        "Étape 3 : Hélice Cylindrique (Axe X)",
+        "Étape 4 : Tore (p=" + PARAMS.p + ", q=" + PARAMS.q + ")"
+      ];
+
+      function updateStageUI(s) {
+        const idx = Math.min(3, Math.round(s));
+        stagesNames[3] = "Étape 4 : Tore (p=" + PARAMS.p + ", q=" + PARAMS.q + ")";
+        badgeStage.innerText = stagesNames[idx];
+
+        [0, 1, 2, 3].forEach(i => {
+          const btn = document.getElementById(`btn-stage-${i}`);
+          btn.classList.toggle('active', i === idx);
+        });
+      }
+
+      function setGlobalPause(paused) {
+        if (paused) {
+          PARAMS.autoMorph = false;
+          PARAMS.isSpinning = false;
+          btnPlayPause.innerText = '▶ Lecture';
+          btnPlayPause.classList.remove('active');
+          btnRotToggle.innerText = 'Rotation : OFF';
+          btnRotToggle.classList.remove('active');
+        } else {
+          PARAMS.autoMorph = true;
+          PARAMS.isSpinning = true;
+          btnPlayPause.innerText = '⏸ Pause';
+          btnPlayPause.classList.add('active');
+          btnRotToggle.innerText = 'Rotation : ON';
+          btnRotToggle.classList.add('active');
+        }
+      }
+
+      btnPlayPause.addEventListener('click', () => {
+        const isCurrentlyPlaying = PARAMS.autoMorph || PARAMS.isSpinning;
+        setGlobalPause(isCurrentlyPlaying);
+      });
+
+      btnRotToggle.addEventListener('click', () => {
+        PARAMS.isSpinning = !PARAMS.isSpinning;
+        btnRotToggle.innerText = PARAMS.isSpinning ? 'Rotation : ON' : 'Rotation : OFF';
+        btnRotToggle.classList.toggle('active', PARAMS.isSpinning);
+      });
+
+      function stepMorph(deltaS) {
+        setGlobalPause(true);
+        PARAMS.s = Math.max(0, Math.min(3.0, PARAMS.s + deltaS));
+        sliderMorph.value = PARAMS.s;
+        valMorph.innerText = PARAMS.s.toFixed(2);
+        updateStageUI(PARAMS.s);
+      }
+
+      btnStepPrev.addEventListener('click', () => stepMorph(-0.02));
+      btnStepNext.addEventListener('click', () => stepMorph(0.02));
+
+      sliderMorph.addEventListener('input', (e) => {
+        PARAMS.s = parseFloat(e.target.value);
+        valMorph.innerText = PARAMS.s.toFixed(2);
+        updateStageUI(PARAMS.s);
+      });
+
+      sliderP.addEventListener('input', (e) => {
+        PARAMS.p = parseInt(e.target.value);
+        valP.innerText = PARAMS.p;
+        updateStageUI(PARAMS.s);
+      });
+
+      sliderQ.addEventListener('input', (e) => {
+        PARAMS.q = parseInt(e.target.value);
+        valQ.innerText = PARAMS.q;
+        rebuildTorusGrid();
+        updateStageUI(PARAMS.s);
+      });
+
+      sliderWidth.addEventListener('input', (e) => {
+        PARAMS.ribbonWidth = parseFloat(e.target.value);
+        valWidth.innerText = PARAMS.ribbonWidth.toFixed(2);
+      });
+
+      sliderTwist.addEventListener('input', (e) => {
+        PARAMS.N_twist = parseFloat(e.target.value);
+        valTwist.innerText = PARAMS.N_twist;
+      });
+
+      const gridModes = ['auto', 'always', 'off'];
+      const gridLabels = ['Grille Tore : AUTO', 'Grille Tore : ON', 'Grille Tore : OFF'];
+      let gridModeIdx = 0;
+
+      btnGridToggle.addEventListener('click', () => {
+        gridModeIdx = (gridModeIdx + 1) % gridModes.length;
+        PARAMS.gridMode = gridModes[gridModeIdx];
+        btnGridToggle.innerText = gridLabels[gridModeIdx];
+        btnGridToggle.classList.toggle('active', PARAMS.gridMode !== 'off');
+      });
+
+      [0, 1, 2, 3].forEach(stage => {
+        document.getElementById(`btn-stage-${stage}`).addEventListener('click', () => {
+          PARAMS.s = stage;
+          sliderMorph.value = stage;
+          valMorph.innerText = stage.toFixed(2);
+          updateStageUI(stage);
+        });
+      });
+
+      document.getElementById('btn-reset').addEventListener('click', () => {
+        PARAMS.s = 0.0;
+        PARAMS.p = 1;
+        PARAMS.q = 1;
+        PARAMS.ribbonWidth = 0.50;
+        PARAMS.N_twist = 0.5;
+        PARAMS.gridMode = 'auto';
+        gridModeIdx = 0;
+        sliderMorph.value = 0;
+        sliderP.value = 1;
+        sliderQ.value = 1;
+        sliderWidth.value = 0.50;
+        sliderTwist.value = 0.5;
+        valMorph.innerText = "0.00";
+        valP.innerText = "1";
+        valQ.innerText = "1";
+        valWidth.innerText = "0.50";
+        valTwist.innerText = "0.5";
+        btnGridToggle.innerText = gridLabels[0];
+        btnGridToggle.classList.add('active');
+        rebuildTorusGrid();
+        setGlobalPause(false);
+        updateStageUI(0);
+      });
+
+      // --- Boucle de Rendu ---
+      const clock = new THREE.Clock();
+
+      function animate() {
+        requestAnimationFrame(animate);
+        const delta = clock.getDelta();
+
+        if (PARAMS.isSpinning) {
+          PARAMS.spinPhase += delta * 2.5;
+        }
+
+        if (PARAMS.autoMorph) {
+          PARAMS.s += PARAMS.morphSpeed * delta;
+          if (PARAMS.s >= 3.0) {
+            PARAMS.s = 3.0;
+          }
+          sliderMorph.value = PARAMS.s;
+          valMorph.innerText = PARAMS.s.toFixed(2);
+          updateStageUI(PARAMS.s);
+        }
+
+        updateRibbonGeometry();
+        updateTorusGridVisibility();
+        renderer.render(scene, camera);
+      }
+
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      animate();
+    }
+  </script>
+</body>
+</html>
