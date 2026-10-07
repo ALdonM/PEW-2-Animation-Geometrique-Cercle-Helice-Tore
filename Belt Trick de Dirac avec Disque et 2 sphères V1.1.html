@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Belt Trick de Dirac — Rotation X, Sphères & Grilles 3D</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background-color: #080b10;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #e6edf3;
+      user-select: none;
+    }
+    #canvas-container {
+      width: 100vw;
+      height: 100vh;
+    }
+    #ui-panel {
+      position: absolute;
+      top: 15px;
+      right: 15px;
+      width: 340px;
+      background: rgba(15, 20, 28, 0.92);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+      z-index: 10;
+    }
+    h2 {
+      margin: 0 0 4px 0;
+      font-size: 15px;
+      font-weight: 600;
+      color: #58a6ff;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .subtitle {
+      font-size: 11px;
+      color: #8b949e;
+      margin-bottom: 12px;
+    }
+    .status-badge {
+      display: block;
+      padding: 8px 10px;
+      border-radius: 6px;
+      background: rgba(88, 166, 255, 0.12);
+      color: #58a6ff;
+      font-size: 11px;
+      font-weight: bold;
+      margin-bottom: 12px;
+      line-height: 1.4;
+      border-left: 3px solid #58a6ff;
+    }
+    .control-group {
+      margin-bottom: 12px;
+    }
+    label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      margin-bottom: 4px;
+      color: #8b949e;
+    }
+    input[type="range"] {
+      width: 100%;
+      accent-color: #238636;
+      cursor: pointer;
+    }
+    .btn-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 6px;
+      margin-top: 8px;
+    }
+    button {
+      background: #21262d;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #c9d1d9;
+      padding: 6px 10px;
+      font-size: 11px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: #30363d;
+    }
+    button.active {
+      background: #238636;
+      border-color: #2ea043;
+      color: #fff;
+      font-weight: bold;
+    }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+  <div id="canvas-container"></div>
+
+  <div id="ui-panel">
+    <h2>BELT TRICK DE DIRAC</h2>
+    <div class="subtitle">Disque (Axe X) — Rubans Vrillés & Double Grille avec Sphères</div>
+    <div id="status-badge" class="status-badge">
+      Tour 1 (0 → 2π) : Rotation autour de X<br>Balayage des 2 grilles 3D...
+    </div>
+
+    <div class="control-group">
+      <label>Angle de rotation Φ <span id="val-angle">240° (1.33π)</span></label>
+      <input type="range" id="slider-angle" min="0" max="720" step="1" value="240">
+    </div>
+
+    <div class="control-group">
+      <label>Vitesse d'animation <span id="val-speed">0.1x</span></label>
+      <input type="range" id="slider-speed" min="0.1" max="2.0" step="0.1" value="0.1">
+    </div>
+
+    <div class="btn-grid">
+      <button id="btn-play">Animation : OFF</button>
+      <button id="btn-grid-toggle" class="active">Grilles 3D : ON</button>
+    </div>
+
+    <div style="margin-top: 8px;">
+      <button id="btn-reset" style="width: 100%;">Réinitialiser Vue</button>
+    </div>
+  </div>
+
+  <script>
+    function initSimulation() {
+      const container = document.getElementById('canvas-container');
+      const scene = new THREE.Scene();
+      scene.fog = new THREE.FogExp2(0x080b10, 0.015);
+
+      const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      container.appendChild(renderer.domElement);
+
+      const R_DISC = 1.2;
+      const R_FRAME = 4.8;
+      const N_SEG_RIBBON = 60;
+      const RIBBON_WIDTH = 0.22;
+      const N_GRID_PHI = 100;
+      const N_GRID_U = 20;
+
+      // Caméra orbitale
+      let isDragging = false;
+      let prevMouse = { x: 0, y: 0 };
+      let camSpherical = { radius: 11, theta: Math.PI / 3, phi: Math.PI / 2.5 };
+
+      function updateCamera() {
+        camSpherical.phi = Math.max(0.05, Math.min(Math.PI - 0.05, camSpherical.phi));
+        camera.position.x = camSpherical.radius * Math.sin(camSpherical.phi) * Math.sin(camSpherical.theta);
+        camera.position.y = camSpherical.radius * Math.cos(camSpherical.phi);
+        camera.position.z = camSpherical.radius * Math.sin(camSpherical.phi) * Math.cos(camSpherical.theta);
+        camera.lookAt(0, 0, 0);
+      }
+      updateCamera();
+
+      renderer.domElement.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        prevMouse = { x: e.clientX, y: e.clientY };
+      });
+      window.addEventListener('mouseup', () => isDragging = false);
+      renderer.domElement.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        camSpherical.theta -= (e.clientX - prevMouse.x) * 0.008;
+        camSpherical.phi -= (e.clientY - prevMouse.y) * 0.008;
+        updateCamera();
+        prevMouse = { x: e.clientX, y: e.clientY };
+      });
+      renderer.domElement.addEventListener('wheel', (e) => {
+        camSpherical.radius = Math.max(3, Math.min(30, camSpherical.radius + e.deltaY * 0.008));
+        updateCamera();
+      });
+
+      // Lumières
+      scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+      const light1 = new THREE.DirectionalLight(0xffffff, 1.2);
+      light1.position.set(10, 15, 10);
+      scene.add(light1);
+      const light2 = new THREE.DirectionalLight(0x38bdf8, 0.8);
+      light2.position.set(-10, -10, -10);
+      scene.add(light2);
+
+      // Cadre fil de fer 3D
+      const frameGeo = new THREE.BoxGeometry(R_FRAME * 2, R_FRAME * 2, R_FRAME * 2);
+      scene.add(new THREE.Mesh(frameGeo, new THREE.MeshBasicMaterial({ color: 0x30363d, wireframe: true, transparent: true, opacity: 0.25 })));
+
+      // Disque central (Axe de rotation X)
+      const discGeo = new THREE.CylinderGeometry(R_DISC, R_DISC, 0.08, 32);
+      discGeo.rotateX(Math.PI / 2);
+      const discMat = new THREE.MeshStandardMaterial({ color: 0x1d4ed8, roughness: 0.3, metalness: 0.6 });
+      const centralDisc = new THREE.Mesh(discGeo, discMat);
+      scene.add(centralDisc);
+
+      // --- Rubans Rouge (+X) et Jaune (-X) ---
+      function createRibbonMesh(colorHex, dirVector) {
+        const geo = new THREE.BufferGeometry();
+        const pos = new Float32Array((N_SEG_RIBBON + 1) * 2 * 3);
+        const indices = [];
+
+        for (let i = 0; i < N_SEG_RIBBON; i++) {
+          const r1 = i * 2;
+          const r2 = (i + 1) * 2;
+          indices.push(r1, r1 + 1, r2, r1 + 1, r2 + 1, r2);
+        }
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        geo.setIndex(indices);
+
+        const mat = new THREE.MeshStandardMaterial({ color: colorHex, side: THREE.DoubleSide, roughness: 0.3, metalness: 0.1 });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.userData = { dir: dirVector.clone().normalize() };
+        return mesh;
+      }
+
+      const ribbonRed = createRibbonMesh(0xef4444, new THREE.Vector3(1, 0, 0));
+      const ribbonYellow = createRibbonMesh(0xeab308, new THREE.Vector3(-1, 0, 0));
+      scene.add(ribbonRed);
+      scene.add(ribbonYellow);
+
+      // --- Sphères Traçantes Cyan (+Y) et Verte (-Y) ---
+      const sphereGeo = new THREE.SphereGeometry(0.18, 16, 16);
+      const sphereCyan = new THREE.Mesh(sphereGeo, new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.2, metalness: 0.3 }));
+      const sphereGreen = new THREE.Mesh(sphereGeo, new THREE.MeshStandardMaterial({ color: 0x22c55e, roughness: 0.2, metalness: 0.3 }));
+      scene.add(sphereCyan);
+      scene.add(sphereGreen);
+
+      const dirCyan = new THREE.Vector3(0, 1, 0);
+      const dirGreen = new THREE.Vector3(0, -1, 0);
+
+      // --- Grilles 3D Paramétriques pour Cyan et Vert ---
+      function createGridMesh(colorHex) {
+        const geo = new THREE.BufferGeometry();
+        const pos = new Float32Array((N_GRID_PHI + 1) * (N_GRID_U + 1) * 3);
+        const indices = [];
+
+        for (let p = 0; p < N_GRID_PHI; p++) {
+          for (let u = 0; u < N_GRID_U; u++) {
+            const i1 = p * (N_GRID_U + 1) + u;
+            const i2 = p * (N_GRID_U + 1) + (u + 1);
+            const i3 = (p + 1) * (N_GRID_U + 1) + u;
+            const i4 = (p + 1) * (N_GRID_U + 1) + (u + 1);
+            indices.push(i1, i2, i3, i2, i4, i3);
+          }
+        }
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        geo.setIndex(indices);
+        return new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: colorHex, wireframe: true, transparent: true, opacity: 0.6 }));
+      }
+
+      const gridCyanMesh = createGridMesh(0x38bdf8);
+      const gridGreenMesh = createGridMesh(0x22c55e);
+      scene.add(gridCyanMesh);
+      scene.add(gridGreenMesh);
+
+      // Quaternion de Dirac Sécurisé (Axe X)
+      function getDiracQuaternion(u, Phi) {
+        const q = new THREE.Quaternion();
+        if (Phi <= Math.PI * 2) {
+          // Tour 1 : Rotation autour de l'axe X (1, 0, 0)
+          q.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Phi * (1 - u));
+        } else {
+          // Tour 2 : Homotopie SU(2) de Dirac
+          const s = (Phi - Math.PI * 2) / (Math.PI * 2);
+          const angle = 2 * Math.PI * (1 - u) * (1 - s);
+
+          const vRaw = new THREE.Vector3(
+            Math.cos(Math.PI * s),
+            Math.sin(Math.PI * s) * Math.cos(Math.PI * u),
+            Math.sin(Math.PI * s) * Math.sin(Math.PI * u)
+          );
+
+          if (vRaw.lengthSq() < 1e-6) {
+            vRaw.set(1, 0, 0);
+          } else {
+            vRaw.normalize();
+          }
+
+          q.setFromAxisAngle(vRaw, angle);
+        }
+        return q;
+      }
+
+      function calculateDiracPosition(dirVec, u, Phi) {
+        const radius = R_DISC + u * (R_FRAME - R_DISC);
+        const p0 = dirVec.clone().multiplyScalar(radius);
+        return p0.applyQuaternion(getDiracQuaternion(u, Phi));
+      }
+
+      function updateSimulation(angleDeg) {
+        const Phi = (angleDeg / 180) * Math.PI;
+
+        // Disque tourne autour de X
+        centralDisc.rotation.x = Phi;
+
+        // 1. Rubans Rouge et Jaune (vrille axiale le long de X)
+        const widthVec = new THREE.Vector3(0, 0, 1);
+        [ribbonRed, ribbonYellow].forEach(mesh => {
+          const dir = mesh.userData.dir;
+          const posAttr = mesh.geometry.attributes.position;
+          const pos = posAttr.array;
+
+          for (let i = 0; i <= N_SEG_RIBBON; i++) {
+            const u = i / N_SEG_RIBBON;
+            const pRot = calculateDiracPosition(dir, u, Phi);
+            const q = getDiracQuaternion(u, Phi);
+            const wRot = widthVec.clone().applyQuaternion(q).multiplyScalar(RIBBON_WIDTH * 0.5);
+
+            const vLeft = pRot.clone().sub(wRot);
+            const vRight = pRot.clone().add(wRot);
+
+            const idx = i * 2 * 3;
+            pos[idx + 0] = vLeft.x; pos[idx + 1] = vLeft.y; pos[idx + 2] = vLeft.z;
+            pos[idx + 3] = vRight.x; pos[idx + 4] = vRight.y; pos[idx + 5] = vRight.z;
+          }
+
+          posAttr.needsUpdate = true;
+          mesh.geometry.computeVertexNormals();
+        });
+
+        // 2. Sphères
+        sphereCyan.position.copy(calculateDiracPosition(dirCyan, 0.65, Phi));
+        sphereGreen.position.copy(calculateDiracPosition(dirGreen, 0.65, Phi));
+
+        // 3. Grilles 3D
+        const maxP = Math.floor((angleDeg / 720) * N_GRID_PHI);
+
+        [
+          { mesh: gridCyanMesh, dir: dirCyan },
+          { mesh: gridGreenMesh, dir: dirGreen }
+        ].forEach(item => {
+          const gridPosAttr = item.mesh.geometry.attributes.position;
+          const gridPos = gridPosAttr.array;
+
+          for (let p = 0; p <= N_GRID_PHI; p++) {
+            const pAngle = (p / N_GRID_PHI) * 4 * Math.PI;
+            const currentPhiStep = (p <= maxP) ? pAngle : Phi;
+
+            for (let u = 0; u <= N_GRID_U; u++) {
+              const uVal = u / N_GRID_U;
+              const pt = calculateDiracPosition(item.dir, uVal, currentPhiStep);
+
+              const idx = (p * (N_GRID_U + 1) + u) * 3;
+              gridPos[idx + 0] = pt.x;
+              gridPos[idx + 1] = pt.y;
+              gridPos[idx + 2] = pt.z;
+            }
+          }
+          gridPosAttr.needsUpdate = true;
+        });
+
+        // UI
+        document.getElementById('val-angle').innerText = `${Math.round(angleDeg)}° (${(angleDeg / 180).toFixed(2)}π)`;
+        const badge = document.getElementById('status-badge');
+
+        if (angleDeg < 360) {
+          badge.innerHTML = `Tour 1 (0 → 2π) : Rotation autour de X<br>Balayage des 2 grilles 3D...`;
+          badge.style.borderColor = "#58a6ff";
+        } else if (angleDeg === 360) {
+          badge.innerHTML = `Fin Tour 1 (2π) : Torsion maximale<br>État -I ∈ SU(2)`;
+          badge.style.borderColor = "#f85149";
+        } else if (angleDeg < 720) {
+          badge.innerHTML = `Tour 2 (2π → 4π) : Homotopie 3D<br>Démêlement des grilles...`;
+          badge.style.borderColor = "#a371f7";
+        } else {
+          badge.innerHTML = `Fin Tour 2 (4π) : Démêlé !<br>Retour à l'état +I ∈ SU(2)`;
+          badge.style.borderColor = "#2ea043";
+        }
+      }
+
+      // Interaction UI
+      let isPlaying = false;
+      let currentAngle = 240;
+      let animSpeed = 0.1;
+
+      const sliderAngle = document.getElementById('slider-angle');
+      const sliderSpeed = document.getElementById('slider-speed');
+      const btnPlay = document.getElementById('btn-play');
+      const btnGridToggle = document.getElementById('btn-grid-toggle');
+
+      sliderAngle.addEventListener('input', (e) => {
+        currentAngle = parseFloat(e.target.value);
+        isPlaying = false;
+        btnPlay.innerText = "Animation : OFF";
+        btnPlay.classList.remove('active');
+        updateSimulation(currentAngle);
+      });
+
+      sliderSpeed.addEventListener('input', (e) => {
+        animSpeed = parseFloat(e.target.value);
+        document.getElementById('val-speed').innerText = `${animSpeed.toFixed(1)}x`;
+      });
+
+      btnPlay.addEventListener('click', () => {
+        isPlaying = !isPlaying;
+        btnPlay.innerText = isPlaying ? "Animation : ON" : "Animation : OFF";
+        btnPlay.classList.toggle('active', isPlaying);
+      });
+
+      btnGridToggle.addEventListener('click', () => {
+        const vis = !gridCyanMesh.visible;
+        gridCyanMesh.visible = vis;
+        gridGreenMesh.visible = vis;
+        btnGridToggle.innerText = vis ? "Grilles 3D : ON" : "Grilles 3D : OFF";
+        btnGridToggle.classList.toggle('active', vis);
+      });
+
+      document.getElementById('btn-reset').addEventListener('click', () => {
+        camSpherical = { radius: 11, theta: Math.PI / 3, phi: Math.PI / 2.5 };
+        updateCamera();
+        currentAngle = 240;
+        sliderAngle.value = 240;
+        updateSimulation(240);
+      });
+
+      // Boucle d'animation
+      const clock = new THREE.Clock();
+      function animate() {
+        requestAnimationFrame(animate);
+        if (isPlaying) {
+          currentAngle += clock.getDelta() * 60 * animSpeed;
+          if (currentAngle > 720) currentAngle = 0;
+          sliderAngle.value = currentAngle;
+          updateSimulation(currentAngle);
+        } else {
+          clock.getDelta();
+        }
+        renderer.render(scene, camera);
+      }
+
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      updateSimulation(240);
+      animate();
+    }
+
+    window.onload = initSimulation;
+  </script>
+</body>
+</html>
